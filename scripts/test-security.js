@@ -23,6 +23,7 @@ const __dirname = path.dirname(__filename);
 import {
   verifyAdminPassword,
   isValidAdminPasswordHash,
+  getAdminPasswordHashDiagnostic,
   isValidSessionSecret,
   getSessionSecret,
   validateAuthConfig,
@@ -185,6 +186,68 @@ async function runTests() {
 
   const emptyPass = await verifyAdminPassword('');
   assert(emptyPass === false, 'Empty password correctly rejected');
+
+  // ── Hash Format Diagnostic & Rejection Tests ──
+  console.log('    Testing ADMIN_PASSWORD_HASH diagnostics & format edge-cases...');
+
+  // Valid cost 12 bcrypt hash
+  const strongHash12 = await bcrypt.hash(testPassword, 12);
+  assert(isValidAdminPasswordHash(strongHash12) === true, 'isValidAdminPasswordHash validates cost 12 bcrypt hash');
+  const diagValid12 = getAdminPasswordHashDiagnostic(strongHash12);
+  assert(diagValid12.present === true, 'Diagnostic reports present: true for valid hash');
+  assert(diagValid12.rawLength === 60 && diagValid12.trimmedLength === 60, 'Diagnostic reports exact length 60 for valid hash');
+  assert(diagValid12.safePrefix === '$2b$12$', 'Diagnostic safePrefix reflects $2b$12$ header');
+  assert(diagValid12.isQuoteWrapped === false, 'Diagnostic reports isQuoteWrapped: false for unquoted hash');
+  assert(diagValid12.hasEscapedDollar === false, 'Diagnostic reports hasEscapedDollar: false for unescaped hash');
+  assert(diagValid12.isValidBcryptFormat === true, 'Diagnostic reports isValidBcryptFormat: true for valid cost 12 hash');
+
+  // Quoted hash with double quotes: "$2b$12$..."
+  const doubleQuotedHash = `"${strongHash12}"`;
+  assert(isValidAdminPasswordHash(doubleQuotedHash) === false, 'Quote-wrapped hash strictly rejected by isValidAdminPasswordHash');
+  const diagDoubleQuoted = getAdminPasswordHashDiagnostic(doubleQuotedHash);
+  assert(diagDoubleQuoted.isQuoteWrapped === true, 'Diagnostic identifies double-quote wrapping');
+  assert(diagDoubleQuoted.rawLength === 62, 'Diagnostic reports rawLength 62 for double-quoted hash');
+  assert(diagDoubleQuoted.safePrefix === '"$2b$12', 'Diagnostic safePrefix captures opening quote without leaking hash');
+  assert(diagDoubleQuoted.isValidBcryptFormat === false, 'Diagnostic reports isValidBcryptFormat: false for quoted hash');
+
+  // Quoted hash with single quotes: '$2b$12$...'
+  const singleQuotedHash = `'${strongHash12}'`;
+  assert(isValidAdminPasswordHash(singleQuotedHash) === false, 'Single-quote wrapped hash strictly rejected by isValidAdminPasswordHash');
+  const diagSingleQuoted = getAdminPasswordHashDiagnostic(singleQuotedHash);
+  assert(diagSingleQuoted.isQuoteWrapped === true, 'Diagnostic identifies single-quote wrapping');
+  assert(diagSingleQuoted.isValidBcryptFormat === false, 'Diagnostic reports isValidBcryptFormat: false for single-quoted hash');
+
+  // Escaped dollar signs: \$2b\$12\$...
+  const escapedDollarHash = strongHash12.replace('$', '\\$');
+  assert(isValidAdminPasswordHash(escapedDollarHash) === false, 'Escaped dollar hash strictly rejected by isValidAdminPasswordHash');
+  const diagEscaped = getAdminPasswordHashDiagnostic(escapedDollarHash);
+  assert(diagEscaped.hasEscapedDollar === true, 'Diagnostic identifies escaped dollar prefix (\\$)');
+  assert(diagEscaped.safePrefix === '\\$2b$12', 'Diagnostic safePrefix captures backslash prefix');
+  assert(diagEscaped.isValidBcryptFormat === false, 'Diagnostic reports isValidBcryptFormat: false for escaped hash');
+
+  // Truncated hash (59 characters instead of 60)
+  const truncatedHash = strongHash12.slice(0, 59);
+  assert(isValidAdminPasswordHash(truncatedHash) === false, 'Truncated hash (59 chars) strictly rejected by isValidAdminPasswordHash');
+  const diagTruncated = getAdminPasswordHashDiagnostic(truncatedHash);
+  assert(diagTruncated.rawLength === 59, 'Diagnostic reports rawLength 59 for truncated hash');
+  assert(diagTruncated.isValidBcryptFormat === false, 'Diagnostic reports isValidBcryptFormat: false for truncated hash');
+
+  // Malformed hash (arbitrary plain-text string)
+  const malformedHash = 'my-plain-text-admin-password';
+  assert(isValidAdminPasswordHash(malformedHash) === false, 'Plain text string rejected by isValidAdminPasswordHash');
+  const diagMalformed = getAdminPasswordHashDiagnostic(malformedHash);
+  assert(diagMalformed.safePrefix === 'my-plai', 'Diagnostic safePrefix is safely truncated to 7 characters');
+  assert(diagMalformed.isValidBcryptFormat === false, 'Diagnostic reports isValidBcryptFormat: false for plain text string');
+
+  // Insecure cost factor (< 10)
+  assert(isValidAdminPasswordHash(weakCostHash) === false, 'Insecure cost hash strictly rejected by isValidAdminPasswordHash');
+  const diagWeakCost = getAdminPasswordHashDiagnostic(weakCostHash);
+  assert(diagWeakCost.safePrefix === '$2b$04$', 'Diagnostic safePrefix captures weak cost header ($2b$04$)');
+  assert(diagWeakCost.isValidBcryptFormat === false, 'Diagnostic reports isValidBcryptFormat: false for cost 4 hash');
+
+  // Privacy guarantee: safePrefix never exceeds 7 characters and never leaks hash/salt
+  assert(diagValid12.safePrefix.length <= 7, 'Privacy check: safePrefix is limited to max 7 characters');
+  assert(!diagValid12.safePrefix.includes(strongHash12.slice(8)), 'Privacy check: safePrefix does not expose salt or checksum');
 
   // ── Session Secret Hardening & Validation Tests ──
   console.log('    Testing ADMIN_SESSION_SECRET hardening & validation...');

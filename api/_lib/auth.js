@@ -67,6 +67,48 @@ export function getSessionSecret() {
 }
 
 /**
+ * Safely inspect diagnostic metadata for ADMIN_PASSWORD_HASH without logging or exposing
+ * the complete hash, salt, password, or secret.
+ * Checks presence, raw length, trimmed length, safe prefix (up to 7 characters max),
+ * quote wrapping, escaped dollar signs, and strict bcrypt format validity.
+ */
+export function getAdminPasswordHashDiagnostic(rawHash = process.env.ADMIN_PASSWORD_HASH) {
+  if (rawHash === undefined || rawHash === null) {
+    return {
+      present: false,
+      rawLength: 0,
+      trimmedLength: 0,
+      safePrefix: '',
+      isQuoteWrapped: false,
+      hasEscapedDollar: false,
+      isValidBcryptFormat: false
+    };
+  }
+
+  const str = String(rawHash);
+  const trimmed = str.trim();
+  const isQuoteWrapped =
+    (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2);
+  const hasEscapedDollar = trimmed.startsWith('\\$');
+
+  // Safe prefix: up to 7 characters max (e.g. "$2b$12$", "\"$2b$1", "\\$2b\\$")
+  // Only reveals algorithm/cost header or syntax markers, NEVER reveals the salt or checksum
+  const safePrefix = trimmed.slice(0, 7);
+  const isValidBcryptFormat = isValidAdminPasswordHash(rawHash);
+
+  return {
+    present: true,
+    rawLength: str.length,
+    trimmedLength: trimmed.length,
+    safePrefix,
+    isQuoteWrapped,
+    hasEscapedDollar,
+    isValidBcryptFormat
+  };
+}
+
+/**
  * Validate that both critical auth environment variables are configured and meet strength requirements.
  * Throws explicit server configuration errors if either is missing or invalid.
  */
@@ -76,6 +118,10 @@ export function validateAuthConfig() {
     throw new Error('Server configuration error: ADMIN_PASSWORD_HASH environment variable is not configured.');
   }
   if (!isValidAdminPasswordHash(hash)) {
+    const diag = getAdminPasswordHashDiagnostic(hash);
+    console.warn(
+      `[AUTH DIAGNOSTIC] ADMIN_PASSWORD_HASH validation failed: rawLen=${diag.rawLength}, trimmedLen=${diag.trimmedLength}, prefix="${diag.safePrefix}", quoteWrapped=${diag.isQuoteWrapped}, escapedDollar=${diag.hasEscapedDollar}, validFormat=${diag.isValidBcryptFormat}`
+    );
     throw new Error('Server configuration error: ADMIN_PASSWORD_HASH is invalid or uses an insecure cost factor (minimum cost 10 required).');
   }
 
@@ -114,6 +160,10 @@ export async function verifyAdminPassword(plaintext) {
   }
 
   if (!isValidAdminPasswordHash(targetHash)) {
+    const diag = getAdminPasswordHashDiagnostic(targetHash);
+    console.warn(
+      `[AUTH DIAGNOSTIC] ADMIN_PASSWORD_HASH validation failed: rawLen=${diag.rawLength}, trimmedLen=${diag.trimmedLength}, prefix="${diag.safePrefix}", quoteWrapped=${diag.isQuoteWrapped}, escapedDollar=${diag.hasEscapedDollar}, validFormat=${diag.isValidBcryptFormat}`
+    );
     throw new Error('Server configuration error: ADMIN_PASSWORD_HASH is invalid or uses an insecure cost factor (minimum cost 10 required).');
   }
 
