@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper Functions for Poem Validation ──
+
+    // 1. Verifies that a like update is strictly +1 or -1, never arbitrary,
+    // safely handling documents where the likes field was previously missing.
+    function isValidLikeUpdate() {
+      let isLikesOnly = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes']);
+      let likes = request.resource.data.likes;
+      let hasLikes = 'likes' in resource.data && resource.data.likes is int;
+
+      return isLikesOnly
+        && likes is int
+        && likes >= 0
+        && (
+          // Increment or decrement from previous value if present
+          (hasLikes && (likes == resource.data.likes + 1 || likes == resource.data.likes - 1))
+          // Initial like when likes field was previously missing
+          || (!hasLikes && likes == 1)
+        );
+    }
+
+    // 2. Verifies that a comment append preserves all existing comments, maintains EXACT order,
+    // contains ONLY approved fields, forbids admin impersonation, and blocks duplicate comments.
+    function isValidCommentAppend() {
+      let isCommentsOnly = request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments']);
+      let newComments = request.resource.data.comments;
+      let hasPrevComments = 'comments' in resource.data && resource.data.comments is list;
+
+      // 1. Ensure comments is a list capped at 100 entries (matching MAX_COMMENTS_PER_POEM)
+      let isListValid = newComments is list && newComments.size() <= 100;
+
+      // 2. Extract the newly appended comment (last element)
+      let newComment = newComments[newComments.size() - 1];
+
+      // 3. Ensure ALL existing comments retain their exact order and content
+      // Mathematically guarantees that every item 0..N-1 is at the exact same index
+      let isExactOrderPreserved = hasPrevComments
+        ? (newComments == resource.data.comments.concat([newComment]))
+        : (newComments.size() == 1);
+
+      // 4. Ensure comment map contains ONLY approved keys (id, author, text, date, role)
+      let hasValidKeys = newComment is map
+        && newComment.keys().hasOnly(['id', 'author', 'text', 'date', 'role'])
+        && newComment.keys().hasAll(['id', 'author', 'text', 'date', 'role']);
+
+      // 5. Ensure comment values are sanitized, appropriately bounded, and cannot impersonate admins
+      let isCommentContentValid = hasValidKeys
+        && newComment.author is string
+        && newComment.author.size() >= 1
+        && newComment.author.size() <= 50
+        && newComment.text is string
+        && newComment.text.size() >= 1
+        && newComment.text.size() <= 1000
+        && newComment.role is string
+        && newComment.role == 'user' // strictly forbid admin role spoofing
+        && newComment.id is int
+        && newComment.date is string
+        && newComment.date.size() <= 40;
+
+      // 6. Prevent duplicate comment submissions (exact identical comment or repeating previous comment)
+      let isNotDuplicate = hasPrevComments
+        ? (
+            !resource.data.comments.hasAny([newComment])
+            && !(resource.data.comments[resource.data.comments.size() - 1].author == newComment.author
+                 && resource.data.comments[resource.data.comments.size() - 1].text == newComment.text)
+          )
+        : true;
+
+      return isCommentsOnly && isListValid && isExactOrderPreserved && isCommentContentValid && isNotDuplicate;
+    }
+
+    // ── Poems Collection (kavithaigal) ──
+    match /kavithaigal/{poemId} {
+      // 1. Preserve public poem reading
+      allow read: if true;
+
+      // 2. Block all unauthorized direct poem creation and deletion
+      // All creation/deletion must go through authenticated Admin API via Firebase Admin SDK
+      allow create, delete: if false;
+
+      // 3. Prevent arbitrary modification of likes and comments
+      // Public visitors can ONLY increment/decrement likes by 1, or append a validated user comment.
+      // All core metadata (title, content, author, category, image, featured, youtubeUrl, id) is immutable.
+      allow update: if isValidLikeUpdate() || isValidCommentAppend();
+    }
+
+    // ── Categories Collection ──
+    match /categories/{categoryId} {
+      // Public visitors can read categories
+      allow read: if true;
+
+      // Restrict category creation, modification and deletion strictly to authorized admin operations
+      allow create, update, delete: if false;
+    }
+
+    // ── Public Guestbook / Feedback Collection ──
+    match /guestbook/{entryId} {
+      // Public visitors can read guestbook entries
+      allow read: if true;
+
+      // Strictly validated guestbook entry creation with anti-abuse limits
+      allow create: if request.resource.data.keys().hasAll(['id', 'author', 'text', 'date'])
+                    && request.resource.data.keys().hasOnly(['id', 'author', 'text', 'date', 'role'])
+                    && request.resource.data.author is string
+                    && request.resource.data.author.size() >= 2
+                    && request.resource.data.author.size() <= 50
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() >= 3
+                    && request.resource.data.text.size() <= 1000
+                    && (!('role' in request.resource.data) || request.resource.data.role == 'user')
+                    && (request.resource.data.id is int || (request.resource.data.id is string && request.resource.data.id.size() <= 64))
+                    && request.resource.data.date is string
+                    && request.resource.data.date.size() <= 40;
+
+      // Guestbook entries cannot be edited or deleted by visitors
+      allow update, delete: if false;
+    }
+
+    // ── Catch-All Default Deny: Deny access to all unspecified collections ──
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
