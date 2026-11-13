@@ -41,3 +41,5 @@ firebase-debug.log*
 .env.*
 !.env.example
 scratch/
+.vercel
+.env*

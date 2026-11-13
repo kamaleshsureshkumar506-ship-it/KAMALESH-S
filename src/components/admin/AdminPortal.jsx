@@ -16,7 +16,9 @@ import {
   Card,
   Row,
   Col,
-  Statistic
+  Statistic,
+  Pagination,
+  Empty
 } from 'antd';
 import {
   PlusOutlined,
@@ -178,6 +180,28 @@ export default function AdminPortal({ onBackHome }) {
       return matchCat && matchSearch;
     });
   }, [kavithaigal, selectedCategory, searchQuery]);
+
+  // Pagination state shared by desktop table and mobile cards
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Reset to page 1 on filter or search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCategory, searchQuery]);
+
+  // Adjust page if items were deleted and page is now out of bounds
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filteredPoems.length / pageSize));
+    if (currentPage > maxPage) {
+      setCurrentPage(maxPage);
+    }
+  }, [filteredPoems.length, pageSize, currentPage]);
+
+  const pagedPoems = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredPoems.slice(start, start + pageSize);
+  }, [filteredPoems, currentPage, pageSize]);
 
   // 4. Save poem via protected API
   const handleSavePoem = async (poemData) => {
@@ -386,42 +410,27 @@ export default function AdminPortal({ onBackHome }) {
       <div className="top-strip" />
 
       {/* Header */}
-      <Header className="blue-header" style={{ padding: '0 24px', lineHeight: 'inherit' }}>
-        <div style={{ maxWidth: 1360, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: '50%',
-                background: '#132745',
-                border: '2px solid #ef9c4e',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#ef9c4e',
-                fontFamily: "'Noto Serif Tamil', serif",
-                fontSize: '1.2rem',
-                fontWeight: 700
-              }}
-            >
+      <Header className="blue-header admin-portal-header">
+        <div className="admin-portal-header-inner">
+          <div className="admin-portal-brand">
+            <div className="admin-portal-avatar">
               க
             </div>
-            <div>
-              <div style={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', fontFamily: "'Noto Serif Tamil', serif" }}>
+            <div className="admin-portal-brand-text">
+              <div className="admin-portal-title">
                 கவிஞன் கமலேஷ் — நிர்வாகி பலகை
               </div>
-              <div style={{ color: '#ef9c4e', fontSize: '0.72rem', letterSpacing: 1.5, textTransform: 'uppercase' }}>
+              <div className="admin-portal-sub">
                 Secure Admin Portal • {authState.user?.username || 'Admin'}
               </div>
             </div>
           </div>
 
-          <Space size={12}>
+          <div className="admin-portal-header-actions">
             <Button
               icon={<HomeOutlined />}
               onClick={onBackHome}
-              style={{ background: 'rgba(255,255,255,0.08)', borderColor: 'rgba(255,255,255,0.2)', color: '#fff' }}
+              className="admin-header-home-btn"
             >
               தளத்திற்குச் செல்
             </Button>
@@ -430,19 +439,19 @@ export default function AdminPortal({ onBackHome }) {
               type="primary"
               icon={<LogoutOutlined />}
               onClick={handleLogout}
-              style={{ borderRadius: 8 }}
+              className="admin-header-logout-btn"
             >
               வெளியேறு (Logout)
             </Button>
-          </Space>
+          </div>
         </div>
       </Header>
 
-      <Content style={{ padding: '24px 20px', maxWidth: 1360, margin: '0 auto', width: '100%' }}>
+      <Content className="admin-portal-content">
         {/* Security & Overview Cards */}
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        <Row gutter={[{ xs: 10, sm: 12, md: 16 }, { xs: 10, sm: 12, md: 16 }]} className="admin-stats-row">
           <Col xs={24} sm={12} md={6}>
-            <Card style={{ borderRadius: 14, border: '1px solid #e8decb' }}>
+            <Card className="admin-stat-card">
               <Statistic
                 title="மொத்த கவிதைகள் (Poems)"
                 value={kavithaigal.length}
@@ -451,7 +460,7 @@ export default function AdminPortal({ onBackHome }) {
             </Card>
           </Col>
           <Col xs={24} sm={12} md={6}>
-            <Card style={{ borderRadius: 14, border: '1px solid #e8decb' }}>
+            <Card className="admin-stat-card">
               <Statistic
                 title="தலைப்புகள் (Categories)"
                 value={allCategories.length}
@@ -460,7 +469,7 @@ export default function AdminPortal({ onBackHome }) {
             </Card>
           </Col>
           <Col xs={24} sm={12} md={6}>
-            <Card style={{ borderRadius: 14, border: '1px solid #e8decb' }}>
+            <Card className="admin-stat-card">
               <Statistic
                 title="மொத்த விருப்பங்கள் (Likes)"
                 value={kavithaigal.reduce((acc, k) => acc + (k.likes || 0), 0)}
@@ -469,11 +478,11 @@ export default function AdminPortal({ onBackHome }) {
             </Card>
           </Col>
           <Col xs={24} sm={12} md={6}>
-            <Card style={{ borderRadius: 14, border: '1px solid #e8decb' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: '100%' }}>
-                <SafetyCertificateOutlined style={{ fontSize: 32, color: '#27ae60' }} />
+            <Card className="admin-stat-card">
+              <div className="admin-security-status-inner">
+                <SafetyCertificateOutlined style={{ fontSize: 28, color: '#27ae60', flexShrink: 0 }} />
                 <div>
-                  <div style={{ fontSize: '0.82rem', color: '#68778d' }}>பாதுகாப்பு நிலை</div>
+                  <div className="admin-security-title">பாதுகாப்பு நிலை (Security)</div>
                   <Tag color="success" icon={<CheckCircleOutlined />}>Server-Protected</Tag>
                 </div>
               </div>
@@ -482,45 +491,32 @@ export default function AdminPortal({ onBackHome }) {
         </Row>
 
         {/* Action Controls Bar */}
-        <div
-          style={{
-            background: '#fff',
-            padding: '16px 20px',
-            borderRadius: 14,
-            border: '1px solid #eee1d4',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 12,
-            marginBottom: 20
-          }}
-        >
-          <Space size={12} wrap>
+        <div className="admin-controls-bar">
+          <div className="admin-controls-inputs">
             <Input
               placeholder="கவிதையைத் தேடுங்கள்..."
               prefix={<SearchOutlined style={{ color: '#999' }} />}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ width: 240, borderRadius: 8 }}
+              className="admin-search-input"
               allowClear
             />
             <Select
               value={selectedCategory}
               onChange={setSelectedCategory}
-              style={{ width: 170 }}
+              className="admin-category-select"
               options={[
                 { value: 'அனைத்தும்', label: 'அனைத்து தலைப்புகள்' },
                 ...categoryNames.map((c) => ({ value: c, label: c }))
               ]}
             />
-          </Space>
+          </div>
 
-          <Space size={12} wrap>
+          <div className="admin-controls-buttons">
             <Button
               icon={<FolderAddOutlined />}
               onClick={() => setCategoryModalOpen(true)}
-              style={{ borderRadius: 8 }}
+              className="admin-btn-secondary"
             >
               தலைப்பு சேர்க்க
             </Button>
@@ -531,34 +527,136 @@ export default function AdminPortal({ onBackHome }) {
                 setEditingPoem(null);
                 setPoemModalOpen(true);
               }}
-              style={{
-                borderRadius: 8,
-                background: 'linear-gradient(135deg, #e07f2e, #b81f12)',
-                borderColor: '#e07f2e',
-                fontWeight: 600
-              }}
+              className="admin-btn-primary"
             >
               புதிய கவிதை சேர்க்க ✦
             </Button>
-          </Space>
+          </div>
         </div>
 
-        {/* Poems Table */}
-        <Card
-          style={{ borderRadius: 14, border: '1px solid #eee1d4', overflow: 'hidden' }}
-          styles={{ body: { padding: 0 } }}
-        >
-          <Table
-            columns={columns}
-            dataSource={filteredPoems}
-            rowKey="id"
-            loading={actionLoading}
-            pagination={{
-              pageSize: 10,
-              showTotal: (total) => `மொத்தம் ${total} கவிதைகள்`
-            }}
-          />
-        </Card>
+        {/* Desktop Table View */}
+        <div className="admin-desktop-table-container">
+          <Card
+            style={{ borderRadius: 14, border: '1px solid #eee1d4', overflow: 'hidden' }}
+            styles={{ body: { padding: 0 } }}
+          >
+            <Table
+              columns={columns}
+              dataSource={filteredPoems}
+              rowKey="id"
+              loading={actionLoading}
+              pagination={{
+                current: currentPage,
+                pageSize: pageSize,
+                total: filteredPoems.length,
+                onChange: (page, size) => {
+                  setCurrentPage(page);
+                  setPageSize(size);
+                },
+                showTotal: (total) => `மொத்தம் ${total} கவிதைகள்`
+              }}
+            />
+          </Card>
+        </div>
+
+        {/* Mobile Cards View */}
+        <div className="admin-mobile-cards-container">
+          {actionLoading ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <Spin size="large" />
+            </div>
+          ) : filteredPoems.length === 0 ? (
+            <Card style={{ borderRadius: 14, border: '1px solid #eee1d4', textAlign: 'center', padding: '36px 16px' }}>
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  <Text style={{ color: '#8c9ba5', fontFamily: "'Noto Serif Tamil', serif", fontSize: '0.95rem' }}>
+                    கவிதைகள் எதுவும் இல்லை (No poems found)
+                  </Text>
+                }
+              />
+            </Card>
+          ) : (
+            <>
+              {pagedPoems.map((poem) => (
+                <div key={poem.id} className="admin-mobile-poem-card">
+                  {/* Top Bar: Number, Category, Likes */}
+                  <div className="admin-mobile-card-top">
+                    <div className="admin-mobile-card-tags">
+                      <span className="admin-mobile-card-id">#{poem.id}</span>
+                      <Tag color="orange" style={{ borderRadius: 6, fontWeight: 500, margin: 0 }}>
+                        {poem.category}
+                      </Tag>
+                    </div>
+                    <div className="admin-mobile-card-likes">
+                      <HeartFilled style={{ color: '#e07f2e' }} />
+                      <span>{poem.likes || 0}</span>
+                    </div>
+                  </div>
+
+                  {/* Body: Title and Author */}
+                  <div className="admin-mobile-card-body">
+                    <div className="admin-mobile-card-title">
+                      {poem.title}
+                    </div>
+                    <div className="admin-mobile-card-author">
+                      {poem.author || 'கவிஞன் கமலேஷ்'}
+                    </div>
+                  </div>
+
+                  {/* Bottom: Edit and Delete Buttons */}
+                  <div className="admin-mobile-card-actions">
+                    <Button
+                      type="default"
+                      icon={<EditOutlined style={{ color: '#2980b9' }} />}
+                      onClick={() => {
+                        setEditingPoem(poem);
+                        setPoemModalOpen(true);
+                      }}
+                      className="admin-mobile-btn-edit"
+                    >
+                      திருத்து
+                    </Button>
+                    <Popconfirm
+                      title="கவிதையை நீக்க விரும்புகிறீர்களா?"
+                      description={`"${poem.title}" நிரந்தரமாக நீக்கப்படும்.`}
+                      okText="நீக்கு"
+                      cancelText="ரத்து"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => handleDeletePoem(poem.id)}
+                    >
+                      <Button
+                        type="default"
+                        danger
+                        icon={<DeleteOutlined />}
+                        className="admin-mobile-btn-delete"
+                      >
+                        நீக்கு
+                      </Button>
+                    </Popconfirm>
+                  </div>
+                </div>
+              ))}
+
+              {/* Mobile Pagination */}
+              {filteredPoems.length > pageSize && (
+                <div className="admin-mobile-pagination-wrapper">
+                  <Pagination
+                    current={currentPage}
+                    pageSize={pageSize}
+                    total={filteredPoems.length}
+                    onChange={(page) => {
+                      setCurrentPage(page);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    size="small"
+                    showTotal={(total) => `மொத்தம் ${total} கவிதைகள்`}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </Content>
 
       {/* Footer */}
