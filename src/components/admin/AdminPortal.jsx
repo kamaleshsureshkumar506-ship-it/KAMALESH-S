@@ -670,6 +670,7 @@ export default function AdminPortal({ onBackHome }) {
       <AdminPoemModal
         open={poemModalOpen}
         poemToEdit={editingPoem}
+        categories={categoryNames}
         onClose={() => {
           setPoemModalOpen(false);
           setEditingPoem(null);
